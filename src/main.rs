@@ -23,14 +23,9 @@ fn main() {
     info!("Starting daemon...");
     let status = main_daemon::start();
     info!("Dameon started: {}", status.is_ok());
-    let stdin = std::io::stdin();
-    let stdin = stdin.lock();
-
-    let stdout = std::io::stdout();
-    let stdout = stdout.lock();
 
     info!("Starting relay ..");
-    relay(BufReader::new(stdin), BufWriter::new(stdout));
+    relay();
 }
 
 mod main_daemon {
@@ -200,36 +195,47 @@ mod main_daemon {
     }
 }
 
-fn relay(mut stdin: BufReader<impl Read>, mut stdout: BufWriter<impl Write>) {
+fn relay() {
     let stream = TcpStream::connect("localhost:7777").unwrap();
     info!("Connected relay local {:?}", stream.local_addr());
-    let mut stream = Some(stream);
-    loop {
-        let req = Message::read_from(&mut stdin);
-        info!("Relay - Incoming request: {} bytes", &req.headers[0]);
-        info!(
-            "Relay - Contents: {}",
-            String::from_utf8_lossy(&req.content)
-        );
 
-        let mut buf_writer = BufWriter::new(stream.take().unwrap());
-        req.write_to(&mut buf_writer);
-        let _ = stream.replace(buf_writer.into_inner().unwrap());
+    let mut tcpin = BufWriter::new(stream.try_clone().unwrap());
+    let mut tcpout = BufReader::new(stream);
 
-        let mut buf_reader = BufReader::new(stream.take().unwrap());
-        let resp = Message::read_from(&mut buf_reader);
-        info!("Relay - Response: {} bytes", &resp.headers[0]);
-        info!(
-            "Relay - Contents: {}",
-            String::from_utf8_lossy(&resp.content)
-        );
-        let _ = stream.replace(buf_reader.into_inner());
+    let thread1 = std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let stdin = stdin.lock();
+        let mut stdin = BufReader::new(stdin);
 
-        resp.write_to(&mut stdout);
-        stdout.flush().unwrap();
-    }
+        loop {
+            let req = Message::read_from(&mut stdin);
+            info!("Relay - Incoming request: {} bytes", &req.headers[0]);
+            info!(
+                "Relay - Contents: {}",
+                String::from_utf8_lossy(&req.content)
+            );
+            req.write_to(&mut tcpin);
+            tcpin.flush().unwrap();
+        }
+    });
+
+    let thread2 = std::thread::spawn(move || {
+        let stdout = std::io::stdout();
+        let stdout = stdout.lock();
+        let mut stdout = BufWriter::new(stdout);
+
+        loop {
+            let resp = Message::read_from(&mut tcpout);
+            info!("Relay - Response: {} bytes", &resp.headers[0]);
+            info!(
+                "Relay - Contents: {}",
+                String::from_utf8_lossy(&resp.content)
+            );
+            resp.write_to(&mut stdout);
+            stdout.flush().unwrap();
+        }
+    });
+
+    thread1.join().unwrap();
+    thread2.join().unwrap();
 }
-
-// TODO -
-// Make relay full duplex. Take data from r-a back to client even if
-// client doesn't send a request.
