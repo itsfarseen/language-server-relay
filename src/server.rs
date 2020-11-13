@@ -134,16 +134,24 @@ fn run_lang_server(exec_path: &str) -> LangServer {
                 .request_id_client_id_map
                 .get(&req_id)
             {
-                None => continue,
+                None => {
+                    info!("run_lang_server: skipping (client_id not found in request_id_map)");
+                    continue;
+                }
                 Some(client_id) => *client_id,
             };
             let client_serverout = match lang_server.clients.get(&client_id) {
-                None => continue,
+                None => {
+                    info!("run_lang_server: skipping (client_handle_internal not found for client_id)");
+                    continue;
+                }
                 Some(client) => {
+                    info!("run_lang_server: Locking");
                     let client = client.lock().unwrap();
                     client.serverout.clone()
                 }
             };
+            info!("run_lang_server: relaying to client_serverout");
             client_serverout.send(resp).unwrap();
         }
     });
