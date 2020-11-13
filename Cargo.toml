@@ -7,3 +7,5 @@ edition = '2018'
 [dependencies]
 log = "0.4.11"
 simplelog = "0.8.0"
+json = "0.12.4"
+dashmap = "3.11.10"
